@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A* Search Algorithm</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+    <style>
+      :root {
+        --bg: #f5f7f7;
+        --panel: #f9fbfb;
+        --line: #d3dada;
+        --ink: #334040;
+        --ink-soft: #566464;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+
+      main {
+        width: min(100%, 920px);
+        display: grid;
+        gap: 14px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.12rem;
+        font-weight: 620;
+        letter-spacing: 0.01em;
+      }
+
+      #status {
+        margin: 4px 0 0;
+        color: var(--ink-soft);
+        font-size: 0.9rem;
+      }
+
+      #board {
+        --cols: 14;
+        display: grid;
+        grid-template-columns: repeat(var(--cols), 28px);
+        gap: 6px;
+        width: max-content;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+      }
+
+      .cell {
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 18px;
+      }
+
+      button {
+        border: 1px solid #a6b1b1;
+        background: #eef2f2;
+        color: var(--ink);
+        border-radius: 8px;
+        font-size: 0.86rem;
+        font-weight: 600;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        color: var(--ink-soft);
+        font-size: 0.8rem;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+      }
+
+      @media (max-width: 720px) {
+        body {
+          padding: 12px;
+        }
+
+        #board {
+          grid-template-columns: repeat(var(--cols), 22px);
+          gap: 4px;
+          padding: 9px;
+        }
+
+        .cell {
+          width: 22px;
+          height: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>A* search algorithm</h1>
+        <p id="status">Expanding nodes with minimum f(n) = g(n) + h(n)</p>
+      </header>
+
+      <div
+        id="board"
+        role="img"
+        aria-label="A-star search on a grid from start to goal with obstacles"
+      ></div>
+
+      <div class="meta">
+        <button id="replay" type="button" aria-label="Replay A-star animation">
+          Replay
+        </button>
+
+        <div class="legend" aria-label="Legend">
+          <span class="legend-item"><span class="swatch" style="background:#9eaad6"></span>Start</span>
+          <span class="legend-item"><span class="swatch" style="background:#d7a3af"></span>Goal</span>
+          <span class="legend-item"><span class="swatch" style="background:#8ea7b8"></span>Open</span>
+          <span class="legend-item"><span class="swatch" style="background:#b8c1c1"></span>Closed</span>
+          <span class="legend-item"><span class="swatch" style="background:#d4b084"></span>Current</span>
+          <span class="legend-item"><span class="swatch" style="background:#8fb39e"></span>Path</span>
+          <span class="legend-item"><span class="swatch" style="background:#9aa4a4"></span>Wall</span>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const WIDTH = 14;
+      const HEIGHT = 9;
+      const START = { x: 1, y: 1 };
+      const GOAL = { x: 12, y: 7 };
+      const STEP_DELAY_MS = 240;
+
+      const COLORS = {
+        empty: "#e8eeee",
+        wall: "#9aa4a4",
+        open: "#8ea7b8",
+        closed: "#b8c1c1",
+        current: "#d4b084",
+        path: "#8fb39e",
+        start: "#9eaad6",
+        goal: "#d7a3af",
+      };
+
+      const WALLS = new Set(
+        [
+          [4, 0], [4, 1], [4, 3], [4, 4], [4, 5], [4, 6], [4, 7], [4, 8],
+          [7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 7], [7, 8],
+          [10, 0], [10, 1], [10, 2], [10, 4], [10, 5], [10, 6], [10, 7],
+          [2, 5], [3, 5], [5, 3], [6, 3], [8, 6], [9, 6], [11, 4], [12, 4],
+        ].map(([x, y]) => `${x},${y}`)
+      );
+
+      const board = document.getElementById("board");
+      const status = document.getElementById("status");
+      const replayButton = document.getElementById("replay");
+      board.style.setProperty("--cols", String(WIDTH));
+
+      const cells = new Map();
+
+      function toKey(x, y) {
+        return `${x},${y}`;
+      }
+
+      function fromKey(key) {
+        const [x, y] = key.split(",").map(Number);
+        return { x, y };
+      }
+
+      const START_KEY = toKey(START.x, START.y);
+      const GOAL_KEY = toKey(GOAL.x, GOAL.y);
+
+      function createBoard() {
+        for (let y = 0; y < HEIGHT; y += 1) {
+          for (let x = 0; x < WIDTH; x += 1) {
+            const key = toKey(x, y);
+            const cell = document.createElement("div");
+            cell.className = "cell";
+            cell.dataset.key = key;
+            cell.dataset.color = "";
+            board.appendChild(cell);
+            cells.set(key, cell);
+          }
+        }
+      }
+
+      function setColorInstant(cell, color) {
+        cell.dataset.color = color;
+        cell.style.backgroundColor = color;
+      }
+
+      function tweenColor(cell, color) {
+        if (cell.dataset.color === color) return;
+        cell.dataset.color = color;
+        anime.remove(cell);
+        anime({
+          targets: cell,
+          backgroundColor: color,
+          duration: 170,
+          easing: "easeOutQuad",
+        });
+      }
+
+      function resetBoard() {
+        for (const [key, cell] of cells.entries()) {
+          let color = COLORS.empty;
+          if (WALLS.has(key)) color = COLORS.wall;
+          if (key === START_KEY) color = COLORS.start;
+          if (key === GOAL_KEY) color = COLORS.goal;
+          setColorInstant(cell, color);
+        }
+      }
+
+      function heuristic(a, b) {
+        return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+      }
+
+      function getNeighbors(node) {
+        const steps = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+
+        const out = [];
+        for (const [dx, dy] of steps) {
+          const nx = node.x + dx;
+          const ny = node.y + dy;
+          if (nx < 0 || ny < 0 || nx >= WIDTH || ny >= HEIGHT) continue;
+          const nextKey = toKey(nx, ny);
+          if (WALLS.has(nextKey)) continue;
+          out.push({ x: nx, y: ny });
+        }
+        return out;
+      }
+
+      function reconstructPath(cameFrom, currentKey) {
+        const path = [currentKey];
+        let cursor = currentKey;
+        while (cameFrom.has(cursor)) {
+          cursor = cameFrom.get(cursor);
+          path.push(cursor);
+        }
+        path.reverse();
+        return path;
+      }
+
+      function buildAStarFrames() {
+        const openSet = new Set([START_KEY]);
+        const openQueue = [START_KEY];
+        const closedSet = new Set();
+        const cameFrom = new Map();
+        const gScore = new Map([[START_KEY, 0]]);
+        const fScore = new Map([[START_KEY, heuristic(START, GOAL)]]);
+        const frames = [];
+
+        function snapshot(current, path = []) {
+          frames.push({
+            current,
+            open: [...openSet],
+            closed: [...closedSet],
+            path: [...path],
+          });
+        }
+
+        while (openQueue.length > 0) {
+          let bestIndex = 0;
+          for (let i = 1; i < openQueue.length; i += 1) {
+            const candidate = openQueue[i];
+            const incumbent = openQueue[bestIndex];
+            if ((fScore.get(candidate) ?? Infinity) < (fScore.get(incumbent) ?? Infinity)) {
+              bestIndex = i;
+            }
+          }
+
+          const [current] = openQueue.splice(bestIndex, 1);
+          openSet.delete(current);
+
+          if (current === GOAL_KEY) {
+            const path = reconstructPath(cameFrom, current);
+            snapshot(current, path);
+            return { frames, found: true, pathLength: path.length };
+          }
+
+          closedSet.add(current);
+          const currentNode = fromKey(current);
+
+          for (const neighbor of getNeighbors(currentNode)) {
+            const neighborKey = toKey(neighbor.x, neighbor.y);
+            if (closedSet.has(neighborKey)) continue;
+
+            const tentativeG = (gScore.get(current) ?? Infinity) + 1;
+            if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
+              cameFrom.set(neighborKey, current);
+              gScore.set(neighborKey, tentativeG);
+              fScore.set(neighborKey, tentativeG + heuristic(neighbor, GOAL));
+              if (!openSet.has(neighborKey)) {
+                openSet.add(neighborKey);
+                openQueue.push(neighborKey);
+              }
+            }
+          }
+
+          snapshot(current);
+        }
+
+        return { frames, found: false, pathLength: 0 };
+      }
+
+      function applyFrame(frame) {
+        const open = new Set(frame.open);
+        const closed = new Set(frame.closed);
+        const path = new Set(frame.path);
+
+        for (const [key, cell] of cells.entries()) {
+          let color = COLORS.empty;
+          if (WALLS.has(key)) color = COLORS.wall;
+          if (open.has(key)) color = COLORS.open;
+          if (closed.has(key)) color = COLORS.closed;
+          if (path.has(key)) color = COLORS.path;
+          if (key === frame.current) color = COLORS.current;
+          if (key === START_KEY) color = COLORS.start;
+          if (key === GOAL_KEY) color = COLORS.goal;
+          tweenColor(cell, color);
+        }
+      }
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      let playing = false;
+
+      async function play() {
+        if (playing) return;
+        playing = true;
+        replayButton.disabled = true;
+
+        resetBoard();
+        const run = buildAStarFrames();
+
+        for (let i = 0; i < run.frames.length; i += 1) {
+          applyFrame(run.frames[i]);
+          if (run.frames[i].path.length > 0) {
+            status.textContent = `Path found: ${Math.max(run.pathLength - 1, 0)} moves`;
+          } else {
+            status.textContent = `Step ${i + 1}/${run.frames.length}`;
+          }
+          await wait(STEP_DELAY_MS);
+        }
+
+        if (!run.found) {
+          status.textContent = "No path found";
+        }
+
+        replayButton.disabled = false;
+        playing = false;
+      }
+
+      createBoard();
+      resetBoard();
+      replayButton.addEventListener("click", play);
+      play();
+    </script>
+  </body>
+</html>
